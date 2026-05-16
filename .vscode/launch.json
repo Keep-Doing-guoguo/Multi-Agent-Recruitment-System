@@ -1,0 +1,57 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "API: FastAPI (uvicorn)",
+      "type": "python",
+      "request": "launch",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "module": "uvicorn",
+      "args": [
+        "recruitment_system.api:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8000",
+        "--reload"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "CLI: Resume + JD Example",
+      "type": "python",
+      "request": "launch",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "module": "recruitment_system.cli",
+      "args": [
+        "--resume",
+        "examples/resume.txt",
+        "--jd",
+        "examples/jd.txt"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Tests: unittest discover",
+      "type": "python",
+      "request": "launch",
+      "python": "/Users/zhangguowen/miniconda3/bin/python",
+      "module": "unittest",
+      "args": [
+        "discover",
+        "-s",
+        "tests"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

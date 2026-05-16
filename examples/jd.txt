@@ -1,0 +1,8 @@
+职位: Python 后端工程师
+
+岗位要求:
+- 3 年以上后端开发经验
+- 熟悉 Python, FastAPI, PostgreSQL, Redis
+- 熟悉 Docker 和 Linux 环境
+- 有 Kubernetes 或 CI/CD 经验优先
+- 本科及以上学历

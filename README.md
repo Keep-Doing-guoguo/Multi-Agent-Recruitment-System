@@ -5,6 +5,129 @@
 
 ---
 
+## 当前实现状态
+
+当前代码先实现了最小可运行 workflow：
+
+```text
+上传/输入简历文件或文本 + JD 文件或文本
+  ↓
+Document Extraction Agent
+  ↓
+Resume Parsing Agent
+  ↓
+Job Matching Agent
+  ↓
+输出匹配报告
+```
+
+这一版默认支持 `.txt` / `.md` / `.csv` / `.json` 等文本文件和直接输入文本；PDF、图片、DOCX 等文件类型已经预留 `MultimodalExtractor` 适配器接口，后续可以接入多模态大模型、OCR 或文档解析服务。
+
+默认实现不依赖外部 LLM API，方便先验证 workflow、状态对象和结构化输出。后续可以在不改变 workflow 契约的前提下，把 `Document Extraction Agent` 或其他单个 Agent 内部替换成模型调用。
+
+### 运行示例
+
+```bash
+python -m recruitment_system.cli --resume examples/resume.txt --jd examples/jd.txt
+```
+
+使用 Ark 多模态模型解析图片 URL 或本地图片：
+
+```bash
+python -m recruitment_system.cli \
+  --multimodal \
+  --resume "https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png" \
+  --jd examples/jd.txt
+```
+
+输出包含：
+
+- `resume_document` / `jd_document`：文档提取结果、置信度、版面块、表格、警告和错误
+- `candidate_profile`：结构化简历解析结果
+- `job_profile`：结构化 JD 摘要
+- `match_result`：匹配分、命中项、缺失项、风险点和摘要
+- `warnings` / `errors`：流程警告和错误
+
+### 多模态扩展点
+
+PDF、图片或 DOCX 这类文件建议通过多模态适配器接入：
+
+```python
+from pathlib import Path
+
+from recruitment_system import DocumentExtractionAgent, RecruitmentWorkflow
+from recruitment_system.models import DocumentExtractionResult
+
+
+class MyMultimodalExtractor:
+    def extract(self, file_path: Path, purpose: str) -> DocumentExtractionResult:
+        # 在这里调用多模态模型、OCR 或文档解析服务
+        return DocumentExtractionResult(
+            source=str(file_path),
+            purpose=purpose,
+            file_type=file_path.suffix.lstrip("."),
+            extracted_text="模型提取出的标准化文本",
+            confidence=0.9,
+        )
+
+
+workflow = RecruitmentWorkflow(
+    document_agent=DocumentExtractionAgent(multimodal_extractor=MyMultimodalExtractor())
+)
+state = workflow.run("resume.pdf", "jd.txt")
+```
+
+项目也内置了 Ark Responses API 适配器，对应的请求格式与下面的 curl 一致：
+
+```python
+from recruitment_system import ArkMultimodalExtractor, DocumentExtractionAgent, RecruitmentWorkflow
+
+workflow = RecruitmentWorkflow(
+    document_agent=DocumentExtractionAgent(multimodal_extractor=ArkMultimodalExtractor())
+)
+state = workflow.run(
+    "https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png",
+    "examples/jd.txt",
+)
+```
+
+### 运行测试
+
+```bash
+python -m unittest discover -s tests
+```
+
+### API 接口
+
+启动 API 服务：
+
+```bash
+uvicorn recruitment_system.api:app --reload
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+上传简历并解析：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/resume/parse \
+  -F "file=@examples/resume.txt"
+```
+
+接口行为：
+
+- 支持上传 `.txt`、`.md`、`.csv`、`.json`、`.pdf`、`.docx`
+- 如果文件内容是简历，返回 `success: true` 和 `candidate_profile`
+- 如果内容不像简历，返回 `success: false` 和 `message`
+- 如果文件无法提取文本，返回 `success: false` 和错误信息
+- 扫描版 PDF 如果没有文本层，需要 OCR 或多模态解析
+
+---
+
 ## 一、项目名称
 
 简历筛选 + 面试辅助系统

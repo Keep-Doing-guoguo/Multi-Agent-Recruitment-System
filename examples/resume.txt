@@ -1,0 +1,13 @@
+张三
+邮箱: zhangsan@example.com
+电话: 13800138000
+
+本科，5 年后端开发经验。
+技能: Python, FastAPI, PostgreSQL, Redis, Docker, Linux, Git
+
+工作经历:
+- 负责招聘系统后端 API 设计与性能优化
+- 维护 PostgreSQL 数据模型和 Redis 缓存
+
+项目经历:
+- 多 Agent 招聘系统：实现简历解析、岗位匹配和筛选建议模块
