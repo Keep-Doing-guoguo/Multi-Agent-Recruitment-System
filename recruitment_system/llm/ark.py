@@ -10,10 +10,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from recruitment_system.agents.document_extraction import MultimodalExtractor
 from recruitment_system.config import LLMConfig
 from recruitment_system.llm.base import StructuredLLMClient, parse_json_object
 from recruitment_system.models import DocumentExtractionResult, DocumentPurpose
+from recruitment_system.tools.document_extraction import MultimodalExtractor
 
 
 class ArkResponsesClient:

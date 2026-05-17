@@ -22,6 +22,7 @@ def test_config() -> LLMConfig:
         api_key="test-key",
         base_url="https://ark.cn-beijing.volces.com/api/v3",
         responses_path="/responses",
+        files_path="/files",
         model="doubao-seed-2-0-lite-260428",
         multimodal_model="doubao-seed-2-0-lite-260428",
         temperature=0.2,

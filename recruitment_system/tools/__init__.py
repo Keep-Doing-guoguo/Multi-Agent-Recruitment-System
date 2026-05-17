@@ -1,5 +1,6 @@
 """Reusable tools used by agents."""
 
+from recruitment_system.tools.document_extraction import DocumentExtractionTool, MultimodalExtractor
 from recruitment_system.tools.document_tools import DocxParserTool, PdfParserTool, TextParserTool
 from recruitment_system.tools.interview_tools import QuestionGenerationTool
 from recruitment_system.tools.matching_tools import JDParserTool, MatchScoringTool
@@ -8,8 +9,10 @@ from recruitment_system.tools.screening_rules import ScreeningRuleEngine
 
 __all__ = [
     "DocxParserTool",
+    "DocumentExtractionTool",
     "JDParserTool",
     "MatchScoringTool",
+    "MultimodalExtractor",
     "PdfParserTool",
     "QuestionGenerationTool",
     "ResumeFieldExtractorTool",

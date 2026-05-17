@@ -1,12 +1,12 @@
-from recruitment_system.agents.document_extraction import DocumentExtractionAgent
-from recruitment_system.agents.interview import InterviewAgent
-from recruitment_system.agents.job_matching import JobMatchingAgent
-from recruitment_system.agents.resume_intake import ResumeIntakeAgent
-from recruitment_system.agents.screening import ScreeningAgent
-from recruitment_system.agents.supervisor import SupervisorAgent
+from recruitment_system.agents.interview_agent import InterviewAgent
+from recruitment_system.agents.job_matching_agent import JobMatchingAgent
+from recruitment_system.agents.resume_intake_agent import ResumeIntakeAgent
+from recruitment_system.agents.screening_agent import ScreeningAgent
+from recruitment_system.agents.supervisor_agent import SupervisorAgent
 from recruitment_system.graph import RecruitmentGraph
 from recruitment_system.llm import StructuredLLMClient
 from recruitment_system.models import WorkflowState
+from recruitment_system.tools.document_extraction import DocumentExtractionTool
 
 
 class RecruitmentWorkflow:
@@ -14,7 +14,8 @@ class RecruitmentWorkflow:
 
     def __init__(
         self,
-        document_agent: DocumentExtractionAgent | None = None,
+        document_tool: DocumentExtractionTool | None = None,
+        document_agent: DocumentExtractionTool | None = None,
         resume_intake_agent: ResumeIntakeAgent | None = None,
         matching_agent: JobMatchingAgent | None = None,
         screening_agent: ScreeningAgent | None = None,
@@ -23,7 +24,7 @@ class RecruitmentWorkflow:
         llm_client: StructuredLLMClient | None = None,
     ) -> None:
         self.graph = RecruitmentGraph(
-            document_agent=document_agent,
+            document_tool=document_tool or document_agent,
             resume_intake_agent=resume_intake_agent,
             matching_agent=matching_agent,
             screening_agent=screening_agent,

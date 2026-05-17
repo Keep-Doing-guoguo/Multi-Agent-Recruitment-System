@@ -26,6 +26,7 @@ class LLMConfig:
     api_key: str
     base_url: str
     responses_path: str
+    files_path: str
     model: str
     multimodal_model: str
     temperature: float
@@ -41,6 +42,7 @@ class LLMConfig:
             api_key=os.getenv("LLM_API_KEY", ""),
             base_url=os.getenv("LLM_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"),
             responses_path=os.getenv("LLM_RESPONSES_PATH", "/responses"),
+            files_path=os.getenv("LLM_FILES_PATH", "/files"),
             model=os.getenv("LLM_MODEL", "doubao-seed-2-0-lite-260428"),
             multimodal_model=os.getenv("MULTIMODAL_MODEL", os.getenv("LLM_MODEL", "doubao-seed-2-0-lite-260428")),
             temperature=float(os.getenv("LLM_TEMPERATURE", "0.2")),
@@ -52,3 +54,15 @@ class LLMConfig:
     @property
     def responses_url(self) -> str:
         return self.base_url.rstrip("/") + "/" + self.responses_path.strip("/")
+
+    @property
+    def files_url(self) -> str:
+        return self.base_url.rstrip("/") + "/" + self.files_path.strip("/")
+
+
+def env_flag(name: str, default: bool = False, dotenv_path: str | Path = ".env") -> bool:
+    load_dotenv(dotenv_path)
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}

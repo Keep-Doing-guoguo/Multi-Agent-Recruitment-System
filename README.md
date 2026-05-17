@@ -17,6 +17,22 @@ Upload/input resume file or text + JD file or text
 LangGraph Workflow Orchestrator
 LangGraph 工作流编排器
   ↓
+message_router / 消息路由器
+  ├─ answer_from_state / 基于已有状态回答
+  │  Answer follow-up questions from existing state without rerunning agents
+  ├─ resume_intake / 简历接收与解析入口
+  │  Handle new resume upload or resume re-parsing
+  ├─ job_matching / 岗位匹配
+  │  Rerun matching when JD or matching criteria changes
+  ├─ screening / 初筛判断
+  │  Rerun screening when screening criteria changes
+  ├─ interview / 面试计划生成
+  │  Generate or refine interview questions
+  ├─ supervisor / 总控复核
+  │  Produce final review, recommendation, or risk validation
+  └─ direct_answer / 直接回答
+     Answer general questions without entering business agents
+  ↓
 Resume Intake Agent / 简历接收 Agent
   ├─ 决策 / Decision: 判断文件类型、选择解析工具、判断是否像简历
   │  Decide file type, choose extraction tool, classify whether content is a resume
@@ -60,8 +76,9 @@ Output matching report / screening advice / interview plan / final review
 | 层级 | Layer | 职责 |
 |---|---|---|
 | LangGraph Workflow Orchestrator | LangGraph 工作流编排器 | 控制节点顺序、条件分支、提前结束和最终状态汇总 |
+| Message Router | 消息路由器 | 判断用户新消息是否进入 Agent workflow，以及从哪个节点开始 |
 | Agent | Agent / 智能体节点 | 在自己的职责边界内做局部决策，并组织工具或 LLM 调用 |
-| Tool | Tool / 工具 | 执行具体能力，例如 PDF 解析、DOCX 解析、JD 解析、评分、问题生成 |
+| Tool | Tool / 工具 | 执行具体能力，例如文档提取、PDF 解析、DOCX 解析、JD 解析、评分、问题生成 |
 | LLM Client | LLM 客户端 | 负责 prompt 调用、结构化 JSON 返回和错误兜底 |
 | State | 状态对象 | 在节点之间传递 `candidate_profile`、`match_result`、`screening_result` 等结构化结果 |
 
@@ -84,10 +101,94 @@ Tool performs concrete actions.
 编排层已由 LangGraph 实现，`RecruitmentWorkflow` 只是兼容包装器。当前图节点包括：
 
 ```text
-resume_intake → jd_extraction → job_matching → screening → interview → supervisor
+resume_intake → resume_parsing → jd_extraction → job_matching → screening → interview → supervisor
 ```
 
-其中 `resume_intake` 和 `jd_extraction` 后有条件边：如果文件解析失败、不是简历或 JD 为空，会直接结束并返回 `errors`。
+其中 `resume_intake`、`resume_parsing` 和 `jd_extraction` 后有条件边：如果文件解析失败、不是简历或 JD 为空，会直接结束并返回 `errors`。
+
+### 多轮消息路由 / Multi-turn Message Routing
+
+多轮对话时，用户的新消息不应该默认重跑完整 workflow。系统应先进入 `message_router` 判断路由。  
+For multi-turn conversations, a new user message should not automatically rerun the full workflow. It should first enter `message_router`.
+
+```text
+message_router / 消息路由器
+├─ answer_from_state / 基于已有状态回答
+├─ resume_intake / 简历接收与解析入口
+├─ job_matching / 岗位匹配
+├─ screening / 初筛判断
+├─ interview / 面试计划生成
+├─ supervisor / 总控复核
+└─ direct_answer / 直接回答
+```
+
+路由含义 / Route meaning:
+
+| Route | 中文 | 什么时候使用 |
+|---|---|---|
+| `answer_from_state` | 基于已有状态回答 | 用户询问已有结论原因，例如“为什么建议人工复核？” |
+| `resume_intake` | 简历接收与解析入口 | 用户上传新简历，或要求重新解析简历 |
+| `job_matching` | 岗位匹配 | 用户修改 JD、调整匹配条件、要求重新匹配 |
+| `screening` | 初筛判断 | 用户修改筛选标准，要求重新初筛 |
+| `interview` | 面试计划生成 | 用户要求生成、调整、细化面试问题 |
+| `supervisor` | 总控复核 | 用户要求最终建议、风险复核、是否人工复核 |
+| `direct_answer` | 直接回答 | 普通说明性问题，不进入业务 Agent |
+
+Router 输出建议 / Suggested router output:
+
+```json
+{
+  "route": "answer_from_state",
+  "reason": "用户询问已有筛选结论原因，不需要重新运行 Agent",
+  "requires_agent": false,
+  "required_nodes": [],
+  "requires_new_input": false
+}
+```
+
+重新进入局部 workflow 的例子 / Partial workflow examples:
+
+```text
+新简历 / New resume:
+message_router → resume_intake → resume_parsing → jd_extraction → job_matching → screening → interview → supervisor
+
+重新匹配 / Rematch:
+message_router → jd_extraction → job_matching → screening → interview → supervisor
+
+重新生成面试题 / Regenerate interview plan:
+message_router → interview → supervisor
+
+解释已有结论 / Explain existing result:
+message_router → answer_from_state
+```
+
+职责边界 / Responsibility boundary:
+
+```text
+Resume Intake Agent 负责判断文件类型、选择解析方法、判断是否像简历
+DocumentExtractionTool 只负责执行被选中的文档提取动作
+
+Resume Intake Agent detects source type, chooses extraction method, and classifies resume-likeness.
+DocumentExtractionTool only performs the selected document extraction action.
+```
+
+`DocumentExtractionAgent` 仅作为旧代码兼容别名保留，新代码应使用 `DocumentExtractionTool`。
+`DocumentExtractionAgent` is kept only as a backward-compatible alias. New code should use `DocumentExtractionTool`.
+
+### 配置 / Configuration
+
+复制 `.env.example` 为 `.env` 后可按需配置：
+
+| 配置项 | 默认值 | 说明 |
+|---|---|---|
+| `ENABLE_LLM` | `false` | 是否在支持的 Agent 中启用 Ark LLM 推理 |
+| `LLM_API_KEY` | 空 | Ark API Key；为空时使用规则和工具 fallback |
+| `LLM_BASE_URL` | `https://ark.cn-beijing.volces.com/api/v3` | Ark API 基础地址 |
+| `LLM_RESPONSES_PATH` | `/responses` | Responses API 路径 |
+| `LLM_FILES_PATH` | `/files` | Files API 路径 |
+| `LLM_MODEL` | `doubao-seed-2-0-lite-260428` | 结构化推理模型 |
+| `MULTIMODAL_MODEL` | 同 `LLM_MODEL` | 文档、图片或 URL 多模态解析模型 |
+| `RECRUITMENT_DB_PATH` | `data/recruitment.sqlite3` | API 会话和消息持久化 SQLite 路径 |
 
 ### 运行示例
 
@@ -136,7 +237,51 @@ prompt → LLM call → JSON schema validate → fallback to rule/tool result
 - `screening_result`：初筛建议、置信度、理由、风险点和是否需要人工复核
 - `interview_plan`：面试类型、策略、问题、风险验证问题和关注点
 - `supervisor_review`：最终建议、决策原因、关键理由、风险和是否需要人工复核
+- `run_events`：LangGraph 节点事件，用于可观察性，包括 `node_started`、`node_completed`、耗时、决策、警告和错误
 - `warnings` / `errors`：流程警告和错误
+
+### 可观察性 / Observability
+
+每次 workflow run 都会产生结构化事件 `run_events`。  
+Each workflow run emits structured `run_events`.
+
+事件由 LangGraph 节点中的 tracer 统一记录：
+
+```text
+node_started  → 节点开始执行
+node_completed → 节点完成，记录 duration_ms、decision、metadata
+node_failed   → 节点异常，记录 error
+```
+
+事件示例 / Event example:
+
+```json
+{
+  "run_id": "xxx",
+  "node": "screening",
+  "event_type": "node_completed",
+  "timestamp": "2026-05-17T10:00:00+00:00",
+  "duration_ms": 12,
+  "status": "completed",
+  "decision": "recommend_interview",
+  "metadata": {
+    "confidence": 0.82,
+    "requires_human_review": true
+  },
+  "warnings": [],
+  "errors": []
+}
+```
+
+这部分回答：
+
+```text
+哪个节点执行了？
+执行耗时多久？
+做了什么决策？
+有没有 fallback、warning 或 error？
+最终建议是从哪些节点结果推导出来的？
+```
 
 ### 多模态扩展点
 
@@ -145,7 +290,7 @@ PDF、图片或 DOCX 这类文件建议通过多模态适配器接入：
 ```python
 from pathlib import Path
 
-from recruitment_system import DocumentExtractionAgent, RecruitmentWorkflow
+from recruitment_system import DocumentExtractionTool, RecruitmentWorkflow
 from recruitment_system.models import DocumentExtractionResult
 
 
@@ -162,7 +307,7 @@ class MyMultimodalExtractor:
 
 
 workflow = RecruitmentWorkflow(
-    document_agent=DocumentExtractionAgent(multimodal_extractor=MyMultimodalExtractor())
+    document_tool=DocumentExtractionTool(multimodal_extractor=MyMultimodalExtractor())
 )
 state = workflow.run("resume.pdf", "jd.txt")
 ```
@@ -170,10 +315,10 @@ state = workflow.run("resume.pdf", "jd.txt")
 项目也内置了 Ark Responses API 适配器，对应的请求格式与下面的 curl 一致：
 
 ```python
-from recruitment_system import ArkMultimodalExtractor, DocumentExtractionAgent, RecruitmentWorkflow
+from recruitment_system import ArkMultimodalExtractor, DocumentExtractionTool, RecruitmentWorkflow
 
 workflow = RecruitmentWorkflow(
-    document_agent=DocumentExtractionAgent(multimodal_extractor=ArkMultimodalExtractor())
+    document_tool=DocumentExtractionTool(multimodal_extractor=ArkMultimodalExtractor())
 )
 state = workflow.run(
     "https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png",
@@ -195,6 +340,14 @@ python -m unittest discover -s tests
 uvicorn recruitment_system.api:app --reload
 ```
 
+message 接口启用大模型：
+
+```bash
+ENABLE_LLM=true LLM_API_KEY=your_api_key uvicorn recruitment_system.api:app --reload
+```
+
+也可以在 `.env` 中配置 `ENABLE_LLM=true` 和 `LLM_API_KEY`。如果 `ENABLE_LLM=true` 但没有配置 `LLM_API_KEY`，message 接口会直接返回配置错误，避免静默退回规则解析。
+
 健康检查：
 
 ```bash
@@ -208,12 +361,55 @@ curl -X POST http://127.0.0.1:8000/api/resume/parse \
   -F "file=@examples/resume.txt"
 ```
 
+创建空会话：
+
+```bash
+curl -X POST "http://127.0.0.1:8000/api/conversations?title=招聘会话"
+```
+
+查看最近会话：
+
+```bash
+curl "http://127.0.0.1:8000/api/conversations?limit=20"
+```
+
+查看某个会话及消息历史：
+
+```bash
+curl http://127.0.0.1:8000/api/conversations/{conversation_id}
+```
+
+第一次文件上传 + JD 分析：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/conversation/message \
+  -F "message=请分析这份简历是否匹配这个岗位" \
+  -F "jd_input=$(cat examples/jd.txt)" \
+  -F "resume_file=@examples/resume.txt"
+```
+
+后续基于已有会话更新 JD：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/conversation/message/json \
+  -H "Content-Type: application/json" \
+  -d '{
+    "conversation_id": "上一次返回的 conversation_id",
+    "message": "JD 改了，请重新匹配",
+    "jd_input": "职位: 算法工程师\n要求: Python, PyTorch, 机器学习, 深度学习\n本科及以上，3 年以上算法经验"
+  }'
+```
+
 接口行为：
 
 - 支持上传 `.txt`、`.md`、`.csv`、`.json`、`.pdf`、`.docx`
 - 如果文件内容是简历，返回 `success: true` 和 `candidate_profile`
 - 如果内容不像简历，返回 `success: false` 和 `message`
 - 如果文件无法提取文本，返回 `success: false` 和错误信息
+- 首次招聘分析必须通过 `/api/conversation/message` 上传 `resume_file`
+- `/api/conversation/message/json` 仅用于已有会话的后续消息，必须提供 `conversation_id`
+- 会话状态和消息历史默认持久化到 `data/recruitment.sqlite3`，可用 `RECRUITMENT_DB_PATH` 改写
+- 每轮消息返回 `conversation_id`、`run_id`、`route_decision`、`data` 和最新 `conversation_state`
 - 扫描版 PDF 如果没有文本层，需要 OCR 或多模态解析
 
 ---

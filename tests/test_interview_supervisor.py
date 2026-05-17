@@ -1,7 +1,7 @@
 import unittest
 
-from recruitment_system.agents.interview import InterviewAgent
-from recruitment_system.agents.supervisor import SupervisorAgent
+from recruitment_system.agents.interview_agent import InterviewAgent
+from recruitment_system.agents.supervisor_agent import SupervisorAgent
 from recruitment_system.models import CandidateProfile, JobProfile, MatchResult, ScreeningResult
 
 

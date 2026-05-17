@@ -9,6 +9,15 @@ EducationLevel = Literal["unknown", "associate", "bachelor", "master", "doctor"]
 DocumentPurpose = Literal["resume", "jd"]
 ScreeningRecommendation = Literal["recommend_interview", "manual_review", "not_recommended"]
 FinalRecommendation = Literal["proceed_to_interview", "manual_review", "reject"]
+MessageRoute = Literal[
+    "answer_from_state",
+    "resume_intake",
+    "job_matching",
+    "screening",
+    "interview",
+    "supervisor",
+    "direct_answer",
+]
 
 
 @dataclass
@@ -97,6 +106,31 @@ class SupervisorReview:
 
 
 @dataclass
+class MessageRouteDecision:
+    route: MessageRoute
+    route_label: str
+    reason: str
+    required_nodes: list[str] = field(default_factory=list)
+    requires_agent: bool = False
+    requires_new_input: bool = False
+    confidence: float = 0.0
+
+
+@dataclass
+class RunEvent:
+    run_id: str
+    node: str
+    event_type: str
+    timestamp: str
+    duration_ms: int | None = None
+    status: str = "running"
+    decision: str | None = None
+    metadata: dict[str, str | int | float | bool | None] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
 class WorkflowState:
     resume_input: str
     jd_input: str
@@ -112,5 +146,6 @@ class WorkflowState:
     screening_result: ScreeningResult | None = None
     interview_plan: InterviewPlan | None = None
     supervisor_review: SupervisorReview | None = None
+    run_events: list[RunEvent] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)

@@ -2,8 +2,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from recruitment_system.agents.document_extraction import DocumentExtractionAgent
 from recruitment_system.models import DocumentExtractionResult, DocumentPurpose
+from recruitment_system.tools.document_extraction import DocumentExtractionTool
 from recruitment_system.workflow import RecruitmentWorkflow
 
 
@@ -43,6 +43,7 @@ class RecruitmentWorkflowTest(unittest.TestCase):
         self.assertIsNotNone(state.screening_result)
         self.assertIsNotNone(state.interview_plan)
         self.assertIsNotNone(state.supervisor_review)
+        self.assertTrue(state.run_events)
         assert state.candidate_profile is not None
         assert state.match_result is not None
         assert state.screening_result is not None
@@ -55,18 +56,28 @@ class RecruitmentWorkflowTest(unittest.TestCase):
         self.assertIn(state.screening_result.recommendation, {"recommend_interview", "manual_review"})
         self.assertTrue(state.interview_plan.focus_areas)
         self.assertIn(state.supervisor_review.final_recommendation, {"proceed_to_interview", "manual_review", "reject"})
+        completed_nodes = [event.node for event in state.run_events if event.event_type == "node_completed"]
+        self.assertEqual(
+            completed_nodes,
+            ["resume_intake", "resume_parsing", "jd_extraction", "job_matching", "screening", "interview", "supervisor"],
+        )
+        decisions = {event.node: event.decision for event in state.run_events if event.event_type == "node_completed"}
+        self.assertEqual(decisions["screening"], state.screening_result.recommendation)
+        self.assertEqual(decisions["supervisor"], state.supervisor_review.final_recommendation)
 
     def test_workflow_validates_required_inputs(self) -> None:
         state = RecruitmentWorkflow().run("", "职位: Python 工程师")
 
         self.assertEqual(state.errors, ["resume_input is required"])
+        self.assertEqual([event.node for event in state.run_events], ["resume_intake", "resume_intake"])
+        self.assertEqual(state.run_events[-1].decision, "end")
 
     def test_workflow_can_use_multimodal_extractor_for_pdf_resume(self) -> None:
         with TemporaryDirectory() as temp_dir:
             resume_path = Path(temp_dir) / "resume.pdf"
             resume_path.write_bytes(b"%PDF-1.4 placeholder")
-            document_agent = DocumentExtractionAgent(multimodal_extractor=FakeMultimodalExtractor())
-            workflow = RecruitmentWorkflow(document_agent=document_agent)
+            document_tool = DocumentExtractionTool(multimodal_extractor=FakeMultimodalExtractor())
+            workflow = RecruitmentWorkflow(document_tool=document_tool)
 
             state = workflow.run(str(resume_path), "职位: Python 后端工程师\n3 年以上经验\n要求 Python, FastAPI")
 
@@ -80,8 +91,8 @@ class RecruitmentWorkflowTest(unittest.TestCase):
         self.assertEqual(state.candidate_profile.name, "王五")
 
     def test_workflow_can_use_multimodal_extractor_for_image_url(self) -> None:
-        document_agent = DocumentExtractionAgent(multimodal_extractor=FakeMultimodalExtractor())
-        workflow = RecruitmentWorkflow(document_agent=document_agent)
+        document_tool = DocumentExtractionTool(multimodal_extractor=FakeMultimodalExtractor())
+        workflow = RecruitmentWorkflow(document_tool=document_tool)
 
         state = workflow.run(
             "https://ark-project.tos-cn-beijing.volces.com/doc_image/ark_demo_img_1.png",

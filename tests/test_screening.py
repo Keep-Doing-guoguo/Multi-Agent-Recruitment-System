@@ -1,6 +1,6 @@
 import unittest
 
-from recruitment_system.agents.screening import ScreeningAgent
+from recruitment_system.agents.screening_agent import ScreeningAgent
 from recruitment_system.models import CandidateProfile, JobProfile, MatchResult
 
 
