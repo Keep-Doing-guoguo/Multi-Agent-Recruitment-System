@@ -5,25 +5,89 @@
 
 ---
 
-## 当前实现状态
+## 当前实现状态 / Current Implementation
 
-当前代码先实现了最小可运行 workflow：
+当前代码已按 **LangGraph + Multi-Agent + Tools** 的组织架构实现了可运行 workflow。  
+The current implementation uses a **LangGraph + Multi-Agent + Tools** architecture.
 
 ```text
 上传/输入简历文件或文本 + JD 文件或文本
+Upload/input resume file or text + JD file or text
   ↓
-Document Extraction Agent
+LangGraph Workflow Orchestrator
+LangGraph 工作流编排器
   ↓
-Resume Parsing Agent
+Resume Intake Agent / 简历接收 Agent
+  ├─ 决策 / Decision: 判断文件类型、选择解析工具、判断是否像简历
+  │  Decide file type, choose extraction tool, classify whether content is a resume
+  ├─ Text Parser Tool / 文本解析工具
+  ├─ PDF Parser Tool / PDF 解析工具
+  ├─ DOCX Parser Tool / DOCX 解析工具
+  └─ Multimodal Tool / 多模态解析工具
   ↓
-Job Matching Agent
+Resume Parsing Agent / 简历结构化解析 Agent
+  ├─ 决策 / Decision: 是否使用 LLM、LLM 输出是否有效、是否 fallback
+  │  Decide whether to use LLM, validate output, and fallback when needed
+  └─ Resume Field Extractor Tool / 简历字段抽取工具
   ↓
-输出匹配报告
+Job Matching Agent / 岗位匹配 Agent
+  ├─ 决策 / Decision: 匹配分、命中项、缺失项和风险解释
+  │  Decide match score, matched requirements, missing requirements, and risk explanation
+  ├─ JD Parser Tool / JD 解析工具
+  └─ Match Scoring Tool / 匹配评分工具
+  ↓
+Screening Agent / 初筛 Agent
+  ├─ 决策 / Decision: 推荐面试、人工复核或暂不推荐
+  │  Decide recommend interview, manual review, or not recommended
+  └─ Screening Rule Engine / 初筛规则引擎
+  ↓
+Interview Agent / 面试计划 Agent
+  ├─ 决策 / Decision: 选择面试策略、关注点和追问方向
+  │  Decide interview strategy, focus areas, and follow-up directions
+  └─ Question Generation Tool / 面试问题生成工具
+  ↓
+Supervisor Agent / 复核 Agent
+  ├─ 决策 / Decision: 最终建议、是否需要人工复核
+  │  Decide final recommendation and whether human review is required
+  └─ Review / Decision Policy / 复核与决策策略
+  ↓
+输出匹配报告 / 初筛建议 / 面试计划 / 最终复核建议
+Output matching report / screening advice / interview plan / final review
+```
+
+### 架构分层 / Architecture Layers
+
+| 层级 | Layer | 职责 |
+|---|---|---|
+| LangGraph Workflow Orchestrator | LangGraph 工作流编排器 | 控制节点顺序、条件分支、提前结束和最终状态汇总 |
+| Agent | Agent / 智能体节点 | 在自己的职责边界内做局部决策，并组织工具或 LLM 调用 |
+| Tool | Tool / 工具 | 执行具体能力，例如 PDF 解析、DOCX 解析、JD 解析、评分、问题生成 |
+| LLM Client | LLM 客户端 | 负责 prompt 调用、结构化 JSON 返回和错误兜底 |
+| State | 状态对象 | 在节点之间传递 `candidate_profile`、`match_result`、`screening_result` 等结构化结果 |
+
+核心原则 / Core principle:
+
+```text
+Workflow 决定流程走向
+Agent 决定局部业务策略
+Tool 执行具体动作
+
+Workflow controls the process.
+Agent makes local business decisions.
+Tool performs concrete actions.
 ```
 
 这一版默认支持 `.txt` / `.md` / `.csv` / `.json` 等文本文件和直接输入文本；PDF、图片、DOCX 等文件类型已经预留 `MultimodalExtractor` 适配器接口，后续可以接入多模态大模型、OCR 或文档解析服务。
 
 默认实现不依赖外部 LLM API，方便先验证 workflow、状态对象和结构化输出。后续可以在不改变 workflow 契约的前提下，把 `Document Extraction Agent` 或其他单个 Agent 内部替换成模型调用。
+
+编排层已由 LangGraph 实现，`RecruitmentWorkflow` 只是兼容包装器。当前图节点包括：
+
+```text
+resume_intake → jd_extraction → job_matching → screening → interview → supervisor
+```
+
+其中 `resume_intake` 和 `jd_extraction` 后有条件边：如果文件解析失败、不是简历或 JD 为空，会直接结束并返回 `errors`。
 
 ### 运行示例
 
@@ -40,12 +104,38 @@ python -m recruitment_system.cli \
   --jd examples/jd.txt
 ```
 
+启用 Ark LLM 驱动的 Agent 推理：
+
+```bash
+python -m recruitment_system.cli \
+  --llm \
+  --resume examples/resume.txt \
+  --jd examples/jd.txt
+```
+
+`--llm` 会让支持的 Agent 走：
+
+```text
+prompt → LLM call → JSON schema validate → fallback to rule/tool result
+```
+
+当前接入：
+
+- `Resume Parsing Agent`：LLM 结构化抽取，失败回退到规则字段抽取
+- `Job Matching Agent`：规则评分 + LLM 解释和风险补充
+- `Screening Agent`：LLM 初筛决策 + 规则 guardrail
+- `Interview Agent`：LLM 面试策略和问题生成
+- `Supervisor Agent`：LLM 汇总复核 + human_review policy
+
 输出包含：
 
 - `resume_document` / `jd_document`：文档提取结果、置信度、版面块、表格、警告和错误
 - `candidate_profile`：结构化简历解析结果
 - `job_profile`：结构化 JD 摘要
 - `match_result`：匹配分、命中项、缺失项、风险点和摘要
+- `screening_result`：初筛建议、置信度、理由、风险点和是否需要人工复核
+- `interview_plan`：面试类型、策略、问题、风险验证问题和关注点
+- `supervisor_review`：最终建议、决策原因、关键理由、风险和是否需要人工复核
 - `warnings` / `errors`：流程警告和错误
 
 ### 多模态扩展点

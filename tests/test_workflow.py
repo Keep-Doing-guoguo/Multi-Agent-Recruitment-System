@@ -40,12 +40,21 @@ class RecruitmentWorkflowTest(unittest.TestCase):
         self.assertIsNotNone(state.candidate_profile)
         self.assertIsNotNone(state.job_profile)
         self.assertIsNotNone(state.match_result)
+        self.assertIsNotNone(state.screening_result)
+        self.assertIsNotNone(state.interview_plan)
+        self.assertIsNotNone(state.supervisor_review)
         assert state.candidate_profile is not None
         assert state.match_result is not None
+        assert state.screening_result is not None
+        assert state.interview_plan is not None
+        assert state.supervisor_review is not None
         self.assertEqual(state.candidate_profile.name, "李四")
         self.assertIn("Python", state.candidate_profile.skills)
         self.assertGreaterEqual(state.match_result.match_score, 70)
         self.assertIn("技能缺失：Kubernetes", state.match_result.missing_requirements)
+        self.assertIn(state.screening_result.recommendation, {"recommend_interview", "manual_review"})
+        self.assertTrue(state.interview_plan.focus_areas)
+        self.assertIn(state.supervisor_review.final_recommendation, {"proceed_to_interview", "manual_review", "reject"})
 
     def test_workflow_validates_required_inputs(self) -> None:
         state = RecruitmentWorkflow().run("", "职位: Python 工程师")

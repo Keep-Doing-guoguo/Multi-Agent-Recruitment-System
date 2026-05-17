@@ -1,63 +1,75 @@
-from __future__ import annotations
-
-import re
-
 from recruitment_system.models import CandidateProfile
-from recruitment_system.text_utils import (
-    extract_education_level,
-    extract_email,
-    extract_phone,
-    extract_skills,
-    extract_years_experience,
-    split_lines,
-)
+from recruitment_system.llm import StructuredLLMClient
+from recruitment_system.tools.resume_tools import ResumeFieldExtractorTool
 
 
 class ResumeParsingAgent:
     """Extracts a structured candidate profile from resume text."""
 
-    def run(self, resume_text: str) -> CandidateProfile:
-        lines = split_lines(resume_text)
-        profile = CandidateProfile(
-            name=self._extract_name(lines),
-            email=extract_email(resume_text),
-            phone=extract_phone(resume_text),
-            skills=extract_skills(resume_text),
-            years_experience=extract_years_experience(resume_text),
-            education_level=extract_education_level(resume_text),  # type: ignore[arg-type]
-            projects=self._extract_section_items(lines, ("项目", "projects")),
-            work_experience=self._extract_section_items(lines, ("工作经历", "工作经验", "experience")),
-        )
+    def __init__(
+        self,
+        field_extractor: ResumeFieldExtractorTool | None = None,
+        llm_client: StructuredLLMClient | None = None,
+    ) -> None:
+        self.field_extractor = field_extractor or ResumeFieldExtractorTool()
+        self.llm_client = llm_client
 
-        if not profile.skills:
+    def run(self, resume_text: str) -> CandidateProfile:
+        if self.llm_client is not None:
+            try:
+                return self._run_llm(resume_text)
+            except Exception:
+                pass
+        return self.field_extractor.extract(resume_text)
+
+    def _run_llm(self, resume_text: str) -> CandidateProfile:
+        data = self.llm_client.generate_json(
+            system_prompt=(
+                "你是 Resume Parsing Agent。请从简历文本中抽取结构化候选人画像。"
+                "只返回 JSON object，不要返回 Markdown。字段必须包括："
+                "name,email,phone,skills,years_experience,education_level,projects,work_experience,uncertain_fields。"
+                "education_level 只能是 unknown, associate, bachelor, master, doctor。"
+            ),
+            user_payload={"resume_text": resume_text},
+        )
+        profile = CandidateProfile(
+            name=self._optional_str(data.get("name")),
+            email=self._optional_str(data.get("email")),
+            phone=self._optional_str(data.get("phone")),
+            skills=self._str_list(data.get("skills")),
+            years_experience=self._optional_int(data.get("years_experience")),
+            education_level=self._education(data.get("education_level")),  # type: ignore[arg-type]
+            projects=self._str_list(data.get("projects")),
+            work_experience=self._str_list(data.get("work_experience")),
+            uncertain_fields=self._str_list(data.get("uncertain_fields")),
+        )
+        if not profile.skills and "skills" not in profile.uncertain_fields:
             profile.uncertain_fields.append("skills")
-        if profile.years_experience is None:
+        if profile.years_experience is None and "years_experience" not in profile.uncertain_fields:
             profile.uncertain_fields.append("years_experience")
-        if profile.education_level == "unknown":
+        if profile.education_level == "unknown" and "education_level" not in profile.uncertain_fields:
             profile.uncertain_fields.append("education_level")
         return profile
 
-    def _extract_name(self, lines: list[str]) -> str | None:
-        for line in lines[:5]:
-            match = re.search(r"(?:姓名|Name)[:：]\s*([A-Za-z\u4e00-\u9fff .-]{2,40})", line, flags=re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-        if lines and 2 <= len(lines[0]) <= 40 and not any(char in lines[0] for char in "@:："):
-            return lines[0]
-        return None
+    def _optional_str(self, value: object) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
 
-    def _extract_section_items(self, lines: list[str], headers: tuple[str, ...]) -> list[str]:
-        items: list[str] = []
-        collecting = False
-        for line in lines:
-            lowered = line.lower()
-            if any(header.lower() in lowered for header in headers):
-                collecting = True
-                continue
-            if collecting and re.search(r"(教育|技能|项目|证书|自我评价|education|skills|projects|certifications)", lowered):
-                break
-            if collecting:
-                items.append(line)
-            if len(items) >= 5:
-                break
-        return items
+    def _str_list(self, value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    def _optional_int(self, value: object) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            return int(float(str(value)))
+        except ValueError:
+            return None
+
+    def _education(self, value: object) -> str:
+        text = str(value or "unknown").strip()
+        return text if text in {"unknown", "associate", "bachelor", "master", "doctor"} else "unknown"

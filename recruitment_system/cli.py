@@ -6,7 +6,7 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from recruitment_system.agents.document_extraction import DocumentExtractionAgent
-from recruitment_system.llm import ArkMultimodalExtractor
+from recruitment_system.llm import ArkMultimodalExtractor, ArkStructuredLLMClient
 from recruitment_system.workflow import RecruitmentWorkflow
 
 
@@ -21,13 +21,15 @@ def main() -> None:
     parser.add_argument("--resume", required=True, help="Resume text or path to a resume file.")
     parser.add_argument("--jd", required=True, help="JD text or path to a JD file.")
     parser.add_argument("--multimodal", action="store_true", help="Use Ark multimodal extraction for images or URLs.")
+    parser.add_argument("--llm", action="store_true", help="Use Ark LLM reasoning inside supported agents.")
     args = parser.parse_args()
 
     document_agent = None
     if args.multimodal:
         document_agent = DocumentExtractionAgent(multimodal_extractor=ArkMultimodalExtractor())
+    llm_client = ArkStructuredLLMClient() if args.llm else None
 
-    state = RecruitmentWorkflow(document_agent=document_agent).run(
+    state = RecruitmentWorkflow(document_agent=document_agent, llm_client=llm_client).run(
         resume_input=args.resume,
         jd_input=args.jd,
     )

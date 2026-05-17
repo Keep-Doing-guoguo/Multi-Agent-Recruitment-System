@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from recruitment_system.models import DocumentExtractionResult, DocumentPurpose
+from recruitment_system.tools.document_tools import DocxParserTool, PdfParserTool, TextParserTool
 
 
+@runtime_checkable
 class MultimodalExtractor(Protocol):
-    """Adapter interface for model-backed document understanding."""
+    """Adapter contract for model-backed document understanding.
+
+    Implementations should hide provider-specific details such as Ark,
+    OCR, or another multimodal API. The caller gives a local file path or
+    remote URL plus the document purpose, and the adapter returns a normalized
+    DocumentExtractionResult.
+
+    Contract:
+    - Accepts local image/document paths or remote HTTP(S) URLs.
+    - Does not raise for provider/API failures; return errors on the result.
+    - Sets extracted_text to plain text suitable for downstream parsing.
+    - Sets confidence to 0.0 when extraction fails or returns empty text.
+    - Preserves source, purpose, file_type, warnings, and errors for tracing.
+    """
 
     def extract(self, source: str | Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
+        """Extract normalized text from a local file path or remote URL."""
         ...
 
 
@@ -23,6 +39,9 @@ class DocumentExtractionAgent:
 
     def __init__(self, multimodal_extractor: MultimodalExtractor | None = None) -> None:
         self.multimodal_extractor = multimodal_extractor
+        self.text_parser = TextParserTool()
+        self.pdf_parser = PdfParserTool()
+        self.docx_parser = DocxParserTool()
 
     def run(self, source: str, purpose: DocumentPurpose) -> DocumentExtractionResult:
         if not source.strip():
@@ -60,13 +79,7 @@ class DocumentExtractionAgent:
     def _extract_file(self, path: Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
         suffix = path.suffix.lower()
         if suffix in self.TEXT_EXTENSIONS:
-            return DocumentExtractionResult(
-                source=str(path),
-                purpose=purpose,
-                file_type=suffix.lstrip(".") or "text",
-                extracted_text=path.read_text(encoding="utf-8"),
-                confidence=1.0,
-            )
+            return self.text_parser.parse(path, purpose)
         if suffix in self.PDF_EXTENSIONS:
             return self._extract_pdf(path, purpose)
         if suffix in self.DOCX_EXTENSIONS:
@@ -93,65 +106,21 @@ class DocumentExtractionAgent:
         return suffix.lstrip(".") or "url"
 
     def _extract_pdf(self, path: Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
-        try:
-            from pypdf import PdfReader
-
-            reader = PdfReader(str(path))
-            pages = [page.extract_text() or "" for page in reader.pages]
-            extracted_text = "\n\n".join(page.strip() for page in pages if page.strip())
-            if not extracted_text and self.multimodal_extractor is not None:
-                return self.multimodal_extractor.extract(path, purpose)
-            warnings = [] if extracted_text else ["PDF 未提取到文本，可能是扫描件，需要 OCR 或多模态解析"]
-            return DocumentExtractionResult(
-                source=str(path),
-                purpose=purpose,
-                file_type="pdf",
-                extracted_text=extracted_text,
-                confidence=0.95 if extracted_text else 0.0,
-                layout_blocks=[f"page_{index + 1}" for index, page in enumerate(pages) if page.strip()],
-                warnings=warnings,
-            )
-        except Exception as error:
-            if self.multimodal_extractor is not None:
-                result = self.multimodal_extractor.extract(path, purpose)
-                result.warnings.append(f"本地 PDF 解析失败，已回退到多模态解析：{error}")
-                return result
-            return DocumentExtractionResult(
-                source=str(path),
-                purpose=purpose,
-                file_type="pdf",
-                confidence=0.0,
-                errors=[f"pdf_extraction_failed: {error}"],
-            )
+        result = self.pdf_parser.parse(path, purpose)
+        if (result.errors or not result.extracted_text) and self.multimodal_extractor is not None:
+            fallback = self.multimodal_extractor.extract(path, purpose)
+            if result.errors:
+                fallback.warnings.extend(result.errors)
+            if result.warnings:
+                fallback.warnings.extend(result.warnings)
+            return fallback
+        return result
 
     def _extract_docx(self, path: Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
-        try:
-            from docx import Document
-
-            document = Document(str(path))
-            paragraphs = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
-            table_rows: list[str] = []
-            for table in document.tables:
-                for row in table.rows:
-                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                    if cells:
-                        table_rows.append(" | ".join(cells))
-            extracted_text = "\n".join(paragraphs + table_rows)
-            warnings = [] if extracted_text else ["DOCX 未提取到文本"]
-            return DocumentExtractionResult(
-                source=str(path),
-                purpose=purpose,
-                file_type="docx",
-                extracted_text=extracted_text,
-                confidence=0.95 if extracted_text else 0.0,
-                tables=table_rows,
-                warnings=warnings,
-            )
-        except Exception as error:
-            return DocumentExtractionResult(
-                source=str(path),
-                purpose=purpose,
-                file_type="docx",
-                confidence=0.0,
-                errors=[f"docx_extraction_failed: {error}"],
-            )
+        result = self.docx_parser.parse(path, purpose)
+        if result.errors and self.multimodal_extractor is not None:
+            if self.multimodal_extractor is not None:
+                fallback = self.multimodal_extractor.extract(path, purpose)
+                fallback.warnings.extend(result.errors)
+                return fallback
+        return result

@@ -10,7 +10,9 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from recruitment_system.agents.document_extraction import MultimodalExtractor
 from recruitment_system.config import LLMConfig
+from recruitment_system.llm.base import StructuredLLMClient, parse_json_object
 from recruitment_system.models import DocumentExtractionResult, DocumentPurpose
 
 
@@ -48,7 +50,32 @@ class ArkResponsesClient:
         raise RuntimeError(f"Ark response request failed: {last_error}") from last_error
 
 
-class ArkMultimodalExtractor:
+class ArkStructuredLLMClient(StructuredLLMClient):
+    """Structured JSON client backed by Ark Responses API."""
+
+    def __init__(self, client: ArkResponsesClient | None = None, config: LLMConfig | None = None) -> None:
+        self.config = config or LLMConfig.from_env()
+        self.client = client or ArkResponsesClient(self.config)
+
+    def generate_json(self, system_prompt: str, user_payload: dict[str, Any]) -> dict[str, Any]:
+        payload = {
+            "model": self.config.model,
+            "input": [
+                {
+                    "role": "system",
+                    "content": [{"type": "input_text", "text": system_prompt}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": json.dumps(user_payload, ensure_ascii=False)}],
+                },
+            ],
+        }
+        response = self.client.create_response(payload)
+        return parse_json_object(extract_response_text(response))
+
+
+class ArkMultimodalExtractor(MultimodalExtractor):
     """Uses Ark multimodal model to extract useful resume/JD content."""
 
     IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -80,7 +107,7 @@ class ArkMultimodalExtractor:
                 ],
             }
             response = self.client.create_response(payload)
-            extracted_text = self._extract_text(response)
+            extracted_text = extract_response_text(response)
             return DocumentExtractionResult(
                 source=source_text,
                 purpose=purpose,
@@ -126,14 +153,14 @@ class ArkMultimodalExtractor:
         suffix = Path(parsed.path if parsed.scheme else source_text).suffix.lower()
         return suffix.lstrip(".") or ("url" if parsed.scheme else "unknown")
 
-    def _extract_text(self, response: dict[str, Any]) -> str:
-        if isinstance(response.get("output_text"), str):
-            return response["output_text"].strip()
+def extract_response_text(response: dict[str, Any]) -> str:
+    if isinstance(response.get("output_text"), str):
+        return response["output_text"].strip()
 
-        texts: list[str] = []
-        for item in response.get("output", []):
-            for content in item.get("content", []):
-                text = content.get("text")
-                if isinstance(text, str):
-                    texts.append(text)
-        return "\n".join(texts).strip()
+    texts: list[str] = []
+    for item in response.get("output", []):
+        for content in item.get("content", []):
+            text = content.get("text")
+            if isinstance(text, str):
+                texts.append(text)
+    return "\n".join(texts).strip()

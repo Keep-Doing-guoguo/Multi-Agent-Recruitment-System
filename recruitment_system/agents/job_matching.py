@@ -1,114 +1,58 @@
 from __future__ import annotations
 
-from recruitment_system.models import CandidateProfile, JobProfile, MatchResult
-from recruitment_system.text_utils import extract_education_level, extract_skills, extract_years_experience, split_lines
+from dataclasses import asdict
 
-
-EDUCATION_RANK = {
-    "unknown": 0,
-    "associate": 1,
-    "bachelor": 2,
-    "master": 3,
-    "doctor": 4,
-}
+from recruitment_system.llm import StructuredLLMClient
+from recruitment_system.models import CandidateProfile, MatchResult
+from recruitment_system.tools.matching_tools import JDParserTool, MatchScoringTool
 
 
 class JobMatchingAgent:
     """Parses a JD and compares it with a structured candidate profile."""
 
-    def run(self, candidate: CandidateProfile, jd_text: str) -> tuple[JobProfile, MatchResult]:
-        job = self._parse_job(jd_text)
-        result = self._match(candidate, job)
+    def __init__(
+        self,
+        jd_parser: JDParserTool | None = None,
+        scoring_tool: MatchScoringTool | None = None,
+        llm_client: StructuredLLMClient | None = None,
+    ) -> None:
+        self.jd_parser = jd_parser or JDParserTool()
+        self.scoring_tool = scoring_tool or MatchScoringTool()
+        self.llm_client = llm_client
+
+    def run(self, candidate: CandidateProfile, jd_text: str):
+        job = self.jd_parser.parse(jd_text)
+        result: MatchResult = self.scoring_tool.score(candidate, job)
+        if self.llm_client is not None:
+            result = self._add_llm_explanation(candidate, jd_text, result)
         return job, result
 
-    def _parse_job(self, jd_text: str) -> JobProfile:
-        lines = split_lines(jd_text)
-        required_skills = extract_skills(jd_text)
-        min_years = extract_years_experience(jd_text)
-        education = extract_education_level(jd_text)
-        title = self._extract_title(lines)
-
-        return JobProfile(
-            title=title,
-            required_skills=required_skills,
-            min_years_experience=min_years,
-            education_level=education,  # type: ignore[arg-type]
-            responsibilities=lines[:8],
-        )
-
-    def _extract_title(self, lines: list[str]) -> str | None:
-        for line in lines[:5]:
-            if any(keyword in line for keyword in ("岗位", "职位", "Job", "Role", "Title")):
-                return line.split(":", 1)[-1].split("：", 1)[-1].strip()
-        return lines[0] if lines else None
-
-    def _match(self, candidate: CandidateProfile, job: JobProfile) -> MatchResult:
-        matched_skills = [skill for skill in job.required_skills if skill in candidate.skills]
-        missing_skills = [skill for skill in job.required_skills if skill not in candidate.skills]
-
-        score_parts: list[float] = []
-        risk_points: list[str] = []
-
-        if job.required_skills:
-            skill_score = len(matched_skills) / len(job.required_skills)
-            score_parts.append(skill_score * 70)
-        else:
-            risk_points.append("JD 未提取到明确技能要求")
-            score_parts.append(35)
-
-        if job.min_years_experience is not None:
-            if candidate.years_experience is None:
-                risk_points.append("候选人工作年限不明确")
-                score_parts.append(5)
-            elif candidate.years_experience >= job.min_years_experience:
-                score_parts.append(20)
+    def _add_llm_explanation(self, candidate: CandidateProfile, jd_text: str, rule_result: MatchResult) -> MatchResult:
+        try:
+            data = self.llm_client.generate_json(
+                system_prompt=(
+                    "你是 Job Matching Agent。规则引擎已经给出 match_score、命中项和缺失项。"
+                    "请只补充更清晰的 summary 和 risk_points，不要改变 match_score。"
+                    "只返回 JSON object，字段：summary, risk_points。"
+                ),
+                user_payload={
+                    "candidate_profile": asdict(candidate),
+                    "jd_text": jd_text,
+                    "rule_match_result": asdict(rule_result),
+                },
+            )
+            summary = str(data.get("summary") or rule_result.summary).strip()
+            risks = data.get("risk_points")
+            if isinstance(risks, list):
+                risk_points = [str(item).strip() for item in risks if str(item).strip()]
             else:
-                risk_points.append(f"工作年限不足：要求 {job.min_years_experience} 年，候选人约 {candidate.years_experience} 年")
-                score_parts.append(max(0, candidate.years_experience / job.min_years_experience) * 20)
-        else:
-            score_parts.append(10)
-
-        if job.education_level != "unknown":
-            candidate_rank = EDUCATION_RANK[candidate.education_level]
-            job_rank = EDUCATION_RANK[job.education_level]
-            if candidate_rank >= job_rank:
-                score_parts.append(10)
-            else:
-                risk_points.append("学历要求未明确满足")
-                score_parts.append(0)
-
-        if missing_skills:
-            risk_points.append("缺少关键技能：" + ", ".join(missing_skills))
-
-        score = min(100, round(sum(score_parts)))
-        matched_requirements = [f"技能匹配：{skill}" for skill in matched_skills]
-        missing_requirements = [f"技能缺失：{skill}" for skill in missing_skills]
-        summary = self._build_summary(score, matched_skills, missing_skills, risk_points)
-        return MatchResult(
-            match_score=score,
-            matched_requirements=matched_requirements,
-            missing_requirements=missing_requirements,
-            risk_points=risk_points,
-            summary=summary,
-        )
-
-    def _build_summary(
-        self,
-        score: int,
-        matched_skills: list[str],
-        missing_skills: list[str],
-        risk_points: list[str],
-    ) -> str:
-        if score >= 80:
-            level = "高度匹配"
-        elif score >= 60:
-            level = "基本匹配"
-        elif score >= 40:
-            level = "部分匹配"
-        else:
-            level = "匹配度较低"
-
-        matched = "、".join(matched_skills) if matched_skills else "暂无明确命中技能"
-        missing = "、".join(missing_skills) if missing_skills else "暂无明显技能缺口"
-        risk = "；".join(risk_points) if risk_points else "暂无明显风险"
-        return f"{level}（{score}/100）。命中：{matched}。缺口：{missing}。风险：{risk}。"
+                risk_points = rule_result.risk_points
+            return MatchResult(
+                match_score=rule_result.match_score,
+                matched_requirements=rule_result.matched_requirements,
+                missing_requirements=rule_result.missing_requirements,
+                risk_points=risk_points or rule_result.risk_points,
+                summary=summary or rule_result.summary,
+            )
+        except Exception:
+            return rule_result
