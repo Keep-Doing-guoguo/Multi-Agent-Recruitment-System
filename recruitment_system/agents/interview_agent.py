@@ -8,13 +8,14 @@ from recruitment_system.tools.interview_tools import QuestionGenerationTool
 
 
 class InterviewAgent:
-    """Chooses an interview strategy and creates an interview plan."""
+    """选择面试策略并生成面试计划。"""
 
     def __init__(
         self,
         question_tool: QuestionGenerationTool | None = None,
         llm_client: StructuredLLMClient | None = None,
     ) -> None:
+        """初始化面试 Agent，可注入问题生成工具和 LLM 客户端。"""
         self.question_tool = question_tool or QuestionGenerationTool()
         self.llm_client = llm_client
 
@@ -25,6 +26,7 @@ class InterviewAgent:
         match_result: MatchResult,
         screening_result: ScreeningResult,
     ) -> InterviewPlan:
+        """基于候选人、岗位、匹配和初筛结果生成面试计划。"""
         focus_areas = self._focus_areas(candidate, job, match_result)
         if screening_result.recommendation == "not_recommended":
             strategy = "risk_review_only"
@@ -61,6 +63,7 @@ class InterviewAgent:
             return rule_plan
 
     def _focus_areas(self, candidate: CandidateProfile, job: JobProfile, match_result: MatchResult) -> list[str]:
+        """从命中技能、缺失技能和经历信号中提取面试关注点。"""
         focus = [skill for skill in job.required_skills if skill in candidate.skills]
         focus.extend(requirement.replace("技能缺失：", "") for requirement in match_result.missing_requirements)
         if candidate.projects:
@@ -77,6 +80,7 @@ class InterviewAgent:
         screening_result: ScreeningResult,
         rule_plan: InterviewPlan,
     ) -> InterviewPlan:
+        """调用 LLM 细化面试策略和问题，失败时由上层回退规则计划。"""
         data = self.llm_client.generate_json(
             system_prompt=(
                 "你是 Interview Agent。请根据候选人画像、岗位要求、匹配结果和初筛建议，选择面试策略并生成面试计划。"
@@ -104,9 +108,11 @@ class InterviewAgent:
         )
 
     def _str_list(self, value: object) -> list[str]:
+        """把模型返回值转换为字符串列表。"""
         return [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []
 
     def _questions(self, value: object) -> list[InterviewQuestion]:
+        """把模型返回的问题对象列表转换为 InterviewQuestion。"""
         if not isinstance(value, list):
             return []
         questions: list[InterviewQuestion] = []

@@ -6,13 +6,14 @@ from recruitment_system.llm import StructuredLLMClient
 
 
 class DirectAnswerAgent:
-    """Answers general questions that should not enter recruitment workflow agents."""
+    """回答不需要进入招聘业务 workflow 的通用问题。"""
 
     def __init__(self, llm_client: StructuredLLMClient | None = None) -> None:
+        """初始化直接回答 Agent，可选接入 LLM。"""
         self.llm_client = llm_client
 
     def run(self, question: str, state: dict[str, Any] | None = None) -> str:
-        """Answer a non-business-routing question."""
+        """回答无需业务路由的问题，LLM 不可用时使用规则回答。"""
         if self.llm_client is not None:
             try:
                 answer = self._run_llm(question, state or {})
@@ -23,7 +24,7 @@ class DirectAnswerAgent:
         return self._rule_answer(question)
 
     def _run_llm(self, question: str, state: dict[str, Any]) -> str:
-        """Use the configured LLM for a concise direct answer."""
+        """使用配置的 LLM 生成简洁直接的回答。"""
         data = self.llm_client.generate_json(
             system_prompt=(
                 "你是 Direct Answer Agent。请回答不需要进入招聘业务 workflow 的通用问题。"
@@ -34,7 +35,7 @@ class DirectAnswerAgent:
         return str(data.get("answer") or "").strip()
 
     def _rule_answer(self, question: str) -> str:
-        """Return deterministic answers for common architecture questions."""
+        """对常见架构类问题返回确定性回答。"""
         text = question.lower()
         if "router" in text or "路由" in text:
             return (

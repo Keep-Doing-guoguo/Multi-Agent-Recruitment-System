@@ -31,9 +31,10 @@ VALID_ROUTES: set[MessageRoute] = set(ROUTE_LABELS)
 
 
 class MessageRouterAgent:
-    """Decides whether a user message should enter a business agent or be answered directly."""
+    """判断用户消息应该进入哪个业务 Agent，或直接回答。"""
 
     def __init__(self, llm_client: StructuredLLMClient | None = None) -> None:
+        """初始化消息路由器，可选接入 LLM 做语义路由。"""
         self.llm_client = llm_client
 
     def run(
@@ -41,10 +42,9 @@ class MessageRouterAgent:
         user_message: str,
         conversation_state: Mapping[str, Any] | object | None = None,
     ) -> MessageRouteDecision:
-        """Return a route decision for one user message.
+        """返回一条用户消息的路由决策。
 
-        Structured state signals are evaluated first, then the optional LLM
-        router, and finally deterministic keyword rules.
+        优先使用显式输入信号，其次使用可选 LLM 路由，最后回退到关键词规则。
         """
         input_decision = self._route_from_explicit_inputs(conversation_state)
         if input_decision is not None:
@@ -60,7 +60,7 @@ class MessageRouterAgent:
         user_message: str,
         conversation_state: Mapping[str, Any] | object | None,
     ) -> MessageRouteDecision | None:
-        """Ask the configured LLM to classify the route; return None on failure."""
+        """调用 LLM 判断路由；失败时返回 None 让上层继续走规则路由。"""
         try:
             data = self.llm_client.generate_json(
                 system_prompt=(
@@ -86,11 +86,10 @@ class MessageRouterAgent:
         self,
         conversation_state: Mapping[str, Any] | object | None,
     ) -> MessageRouteDecision | None:
-        """Route using explicit state fields before interpreting natural language.
+        """优先根据显式 state 字段路由，避免自然语言误判。
 
-        Examples:
-        - resume_input + jd_input means a full first-pass recruitment workflow.
-        - jd_input + parsed resume state means re-run JD extraction and downstream nodes.
+        例如 resume_input + jd_input 表示完整首轮分析；
+        jd_input + candidate_profile 表示基于已有简历重新匹配岗位。
         """
         has_resume_input = self._state_has_text(conversation_state, "resume_input")
         has_jd_input = self._state_has_text(conversation_state, "jd_input")
@@ -130,7 +129,7 @@ class MessageRouterAgent:
         user_message: str,
         conversation_state: Mapping[str, Any] | object | None,
     ) -> MessageRouteDecision:
-        """Route by deterministic keyword rules when no explicit or LLM route exists."""
+        """在没有显式输入或 LLM 决策时，使用关键词规则路由。"""
         text = user_message.strip().lower()
         has_state = self._has_business_state(conversation_state)
 
@@ -206,7 +205,7 @@ class MessageRouterAgent:
         )
 
     def _normalize_decision(self, data: Mapping[str, Any]) -> MessageRouteDecision:
-        """Validate and normalize an LLM-produced route payload."""
+        """校验并归一化 LLM 返回的路由 JSON。"""
         route = str(data.get("route") or "").strip()
         if route not in VALID_ROUTES:
             raise ValueError(f"Invalid route: {route}")
@@ -231,7 +230,7 @@ class MessageRouterAgent:
         requires_new_input: bool = False,
         confidence: float = 0.0,
     ) -> MessageRouteDecision:
-        """Build a MessageRouteDecision with labels and agent flags filled in."""
+        """构造完整的 MessageRouteDecision，补齐标签和 Agent 标记。"""
         nodes = required_nodes or ([route] if route in BUSINESS_AGENT_ROUTES else [])
         return MessageRouteDecision(
             route=route,
@@ -244,7 +243,7 @@ class MessageRouterAgent:
         )
 
     def _workflow_from(self, start_at: str, stop_at: str | None = None) -> list[str]:
-        """Return the canonical LangGraph node slice for a route."""
+        """根据起止节点返回标准 LangGraph 节点片段。"""
         if start_at not in WORKFLOW_NODE_ORDER:
             return []
         start_index = WORKFLOW_NODE_ORDER.index(start_at)
@@ -254,7 +253,7 @@ class MessageRouterAgent:
         return WORKFLOW_NODE_ORDER[start_index : stop_index + 1]
 
     def _has_business_state(self, conversation_state: Mapping[str, Any] | object | None) -> bool:
-        """Return whether the conversation contains any persisted business result."""
+        """判断会话中是否已有可复用的业务结果状态。"""
         keys = set(self._state_keys(conversation_state))
         return bool(
             keys.intersection(
@@ -271,7 +270,7 @@ class MessageRouterAgent:
         )
 
     def _state_keys(self, conversation_state: Mapping[str, Any] | object | None) -> list[str]:
-        """Return non-empty top-level keys from dict, dataclass, or object state."""
+        """读取 dict、dataclass 或普通对象中的非空顶层字段名。"""
         if conversation_state is None:
             return []
         if isinstance(conversation_state, Mapping):
@@ -281,12 +280,12 @@ class MessageRouterAgent:
         return [key for key, value in vars(conversation_state).items() if value is not None]
 
     def _state_has_text(self, conversation_state: Mapping[str, Any] | object | None, key: str) -> bool:
-        """Return whether a state key contains non-empty text."""
+        """判断 state 中某个字段是否为非空字符串。"""
         value = self._state_value(conversation_state, key)
         return isinstance(value, str) and bool(value.strip())
 
     def _state_has_value(self, conversation_state: Mapping[str, Any] | object | None, key: str) -> bool:
-        """Return whether a state key has a meaningful non-empty value."""
+        """判断 state 中某个字段是否存在有效值。"""
         value = self._state_value(conversation_state, key)
         if value is None:
             return False
@@ -297,7 +296,7 @@ class MessageRouterAgent:
         return True
 
     def _state_value(self, conversation_state: Mapping[str, Any] | object | None, key: str) -> Any:
-        """Read a value from dict, dataclass, or object state."""
+        """从 dict、dataclass 或普通对象中读取字段值。"""
         if conversation_state is None:
             return None
         if isinstance(conversation_state, Mapping):
@@ -307,11 +306,11 @@ class MessageRouterAgent:
         return getattr(conversation_state, key, None)
 
     def _contains_any(self, text: str, keywords: tuple[str, ...]) -> bool:
-        """Return whether text contains at least one keyword."""
+        """判断文本中是否包含任一关键词。"""
         return any(keyword in text for keyword in keywords)
 
     def _coerce_confidence(self, value: Any) -> float:
-        """Convert a value into a confidence score between 0 and 1."""
+        """把任意值转换为 0 到 1 之间的置信度。"""
         try:
             confidence = float(value)
         except (TypeError, ValueError):

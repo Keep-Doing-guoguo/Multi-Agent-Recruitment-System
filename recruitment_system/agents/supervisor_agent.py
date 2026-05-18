@@ -7,9 +7,10 @@ from recruitment_system.models import InterviewPlan, MatchResult, ScreeningResul
 
 
 class SupervisorAgent:
-    """Reviews downstream outputs and produces the final recommendation."""
+    """复核下游 Agent 输出并生成最终建议。"""
 
     def __init__(self, llm_client: StructuredLLMClient | None = None) -> None:
+        """初始化复核 Agent，可选接入结构化 LLM 客户端。"""
         self.llm_client = llm_client
 
     def run(
@@ -18,6 +19,7 @@ class SupervisorAgent:
         screening_result: ScreeningResult,
         interview_plan: InterviewPlan,
     ) -> SupervisorReview:
+        """汇总匹配、初筛和面试计划，生成最终复核结论。"""
         risks = list(dict.fromkeys(screening_result.risk_points + [q.risk for q in interview_plan.risk_validation_questions if q.risk]))
 
         if screening_result.recommendation == "recommend_interview":
@@ -45,6 +47,7 @@ class SupervisorAgent:
             return rule_review
 
     def _decision_reason(self, final: str, score: int, has_risk: bool) -> str:
+        """根据最终建议、匹配分和风险状态生成规则版决策原因。"""
         if final == "proceed_to_interview":
             return f"匹配分 {score}/100，未发现强制复核风险，建议进入面试。"
         if final == "manual_review":
@@ -59,6 +62,7 @@ class SupervisorAgent:
         interview_plan: InterviewPlan,
         rule_review: SupervisorReview,
     ) -> SupervisorReview:
+        """调用 LLM 复核最终建议，并用规则结果约束输出范围。"""
         data = self.llm_client.generate_json(
             system_prompt=(
                 "你是 Supervisor Agent。请复核前序 Agent 输出，给出最终建议。"
@@ -93,4 +97,5 @@ class SupervisorAgent:
         )
 
     def _str_list(self, value: object) -> list[str]:
+        """把模型返回值转换为字符串列表。"""
         return [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []

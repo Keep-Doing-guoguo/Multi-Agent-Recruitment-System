@@ -8,16 +8,17 @@ from recruitment_system.tools.document_extraction import DocumentExtractionTool,
 
 
 class ResumeIntakeAgent:
-    """Handles resume input, extraction method decisions, and document extraction."""
+    """处理简历输入、解析方式选择和原始文本提取。"""
 
     def __init__(
         self,
         document_tool: DocumentExtractionTool | None = None,
     ) -> None:
+        """初始化简历接收 Agent，可注入文档提取工具。"""
         self.document_tool = document_tool or DocumentExtractionTool()
 
     def run(self, resume_input: str) -> tuple[DocumentExtractionResult, str | None]:
-        """Extract raw resume text from an uploaded file, URL, or internal source."""
+        """从上传文件、URL 或内联文本中提取简历原文。"""
         source_type = self._detect_source_type(resume_input)
         method = self._choose_extraction_method(source_type, resume_input)
         document = self.document_tool.extract(resume_input, "resume", method)
@@ -28,7 +29,7 @@ class ResumeIntakeAgent:
         return document, None
 
     def _detect_source_type(self, resume_input: str) -> str:
-        """Classify the input source before choosing an extraction tool."""
+        """在选择工具前识别输入来源类型。"""
         if not resume_input.strip():
             return "empty"
         parsed = urlparse(resume_input)
@@ -41,7 +42,7 @@ class ResumeIntakeAgent:
         return "inline_text"
 
     def _choose_extraction_method(self, source_type: str, resume_input: str) -> ExtractionMethod:
-        """Choose the concrete document extraction tool for a source type."""
+        """根据来源类型选择具体的文档提取方式。"""
         if source_type == "empty":
             return "unsupported"
         if source_type == "inline_text":
@@ -57,7 +58,7 @@ class ResumeIntakeAgent:
         return self.document_tool.choose_default_method(resume_input)
 
     def looks_like_resume(self, candidate: CandidateProfile, document: DocumentExtractionResult) -> bool:
-        """Return whether parsed fields and text signals look like a resume."""
+        """根据结构化字段和文本信号判断内容是否像简历。"""
         text = document.extracted_text.lower()
         signals = 0
         if candidate.email or candidate.phone:

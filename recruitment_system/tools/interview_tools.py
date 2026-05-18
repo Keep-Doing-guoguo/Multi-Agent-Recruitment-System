@@ -4,9 +4,10 @@ from recruitment_system.models import InterviewQuestion
 
 
 class QuestionGenerationTool:
-    """Creates deterministic interview questions from focus areas and risks."""
+    """根据关注点和风险点生成确定性的面试问题。"""
 
     def generate_focus_questions(self, focus_areas: list[str]) -> list[InterviewQuestion]:
+        """围绕面试关注点生成技术验证问题。"""
         questions: list[InterviewQuestion] = []
         for area in focus_areas[:5]:
             questions.append(
@@ -19,6 +20,7 @@ class QuestionGenerationTool:
         return questions
 
     def generate_risk_questions(self, risk_points: list[str]) -> list[InterviewQuestion]:
+        """围绕风险点生成复核追问。"""
         return [
             InterviewQuestion(
                 category="risk_validation",

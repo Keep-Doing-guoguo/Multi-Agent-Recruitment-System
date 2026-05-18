@@ -6,9 +6,10 @@ from recruitment_system.models import DocumentExtractionResult, DocumentPurpose
 
 
 class TextParserTool:
-    """Reads text-like files."""
+    """读取文本类文件。"""
 
     def parse(self, path: Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
+        """按 UTF-8 读取文本文件并封装成 DocumentExtractionResult。"""
         return DocumentExtractionResult(
             source=str(path),
             purpose=purpose,
@@ -19,9 +20,10 @@ class TextParserTool:
 
 
 class PdfParserTool:
-    """Extracts text from PDFs with a text layer."""
+    """从带文本层的 PDF 中提取文本。"""
 
     def parse(self, path: Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
+        """使用 pypdf 提取 PDF 文本；扫描件会返回空文本警告。"""
         try:
             from pypdf import PdfReader
 
@@ -49,9 +51,10 @@ class PdfParserTool:
 
 
 class DocxParserTool:
-    """Extracts text from DOCX paragraphs and tables."""
+    """从 DOCX 段落和表格中提取文本。"""
 
     def parse(self, path: Path, purpose: DocumentPurpose) -> DocumentExtractionResult:
+        """读取 DOCX 的段落和表格内容并合并为纯文本。"""
         try:
             from docx import Document
 

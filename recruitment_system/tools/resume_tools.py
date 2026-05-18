@@ -14,9 +14,10 @@ from recruitment_system.text_utils import (
 
 
 class ResumeFieldExtractorTool:
-    """Extracts structured fields from normalized resume text."""
+    """从标准化简历文本中抽取候选人结构化字段。"""
 
     def extract(self, resume_text: str) -> CandidateProfile:
+        """抽取姓名、联系方式、技能、年限、学历、项目和工作经历。"""
         lines = split_lines(resume_text)
         profile = CandidateProfile(
             name=self._extract_name(lines),
@@ -38,6 +39,7 @@ class ResumeFieldExtractorTool:
         return profile
 
     def _extract_name(self, lines: list[str]) -> str | None:
+        """从简历前几行中抽取姓名。"""
         for line in lines[:5]:
             match = re.search(r"(?:姓名|Name)[:：]\s*([A-Za-z\u4e00-\u9fff .-]{2,40})", line, flags=re.IGNORECASE)
             if match:
@@ -47,6 +49,7 @@ class ResumeFieldExtractorTool:
         return None
 
     def _extract_section_items(self, lines: list[str], headers: tuple[str, ...]) -> list[str]:
+        """根据章节标题抽取项目经历或工作经历条目。"""
         items: list[str] = []
         collecting = False
         for line in lines:

@@ -8,13 +8,14 @@ from recruitment_system.tools.screening_rules import ScreeningRuleEngine
 
 
 class ScreeningAgent:
-    """Produces first-round screening advice from candidate and matching results."""
+    """根据候选人画像和匹配结果生成初筛建议。"""
 
     def __init__(
         self,
         rule_engine: ScreeningRuleEngine | None = None,
         llm_client: StructuredLLMClient | None = None,
     ) -> None:
+        """初始化初筛 Agent，可注入规则引擎和结构化 LLM 客户端。"""
         self.rule_engine = rule_engine or ScreeningRuleEngine()
         self.llm_client = llm_client
 
@@ -24,6 +25,7 @@ class ScreeningAgent:
         job: JobProfile,
         match_result: MatchResult,
     ) -> ScreeningResult:
+        """执行初筛判断；规则结果作为 guardrail，LLM 失败时回退规则结果。"""
         _ = job
         rule_result = self.rule_engine.evaluate(candidate, match_result)
         if self.llm_client is None:
@@ -40,6 +42,7 @@ class ScreeningAgent:
         match_result: MatchResult,
         rule_result: ScreeningResult,
     ) -> ScreeningResult:
+        """调用 LLM 生成初筛建议，并用规则结果约束高风险输出。"""
         data = self.llm_client.generate_json(
             system_prompt=(
                 "你是 Screening Agent。请基于候选人、岗位和匹配结果给出初筛建议。"
@@ -74,9 +77,11 @@ class ScreeningAgent:
         )
 
     def _list(self, value: object) -> list[str]:
+        """把模型返回值转换为字符串列表。"""
         return [str(item).strip() for item in value if str(item).strip()] if isinstance(value, list) else []
 
     def _confidence(self, value: object, fallback: float) -> float:
+        """把置信度归一化到 0 到 1 之间，非法值使用 fallback。"""
         try:
             confidence = float(str(value))
         except (TypeError, ValueError):

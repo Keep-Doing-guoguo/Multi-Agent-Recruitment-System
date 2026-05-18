@@ -4,9 +4,10 @@ from recruitment_system.models import CandidateProfile, MatchResult, ScreeningRe
 
 
 class ScreeningRuleEngine:
-    """Applies first-round screening policy."""
+    """执行首轮简历筛选规则。"""
 
     def evaluate(self, candidate: CandidateProfile, match_result: MatchResult) -> ScreeningResult:
+        """根据匹配分、缺失项和简历完整度生成初筛结果。"""
         reasons: list[str] = []
         risks = list(match_result.risk_points)
 
@@ -49,6 +50,7 @@ class ScreeningRuleEngine:
         )
 
     def _summary(self, recommendation: str, score: int, requires_human_review: bool) -> str:
+        """生成初筛建议摘要。"""
         labels = {
             "recommend_interview": "建议进入面试",
             "manual_review": "建议人工复核",

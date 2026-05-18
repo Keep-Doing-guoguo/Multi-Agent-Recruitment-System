@@ -22,6 +22,15 @@ class FakeStructuredLLMClient:
                 "work_experience": ["后端开发"],
                 "uncertain_fields": [],
             }
+        if "JD Parser Tool" in system_prompt:
+            return {
+                "title": "LLM 后端工程师",
+                "required_skills": ["Python", "FastAPI", "Kubernetes"],
+                "preferred_skills": ["Redis"],
+                "min_years_experience": 4,
+                "education_level": "bachelor",
+                "responsibilities": ["负责招聘系统后端服务"],
+            }
         if "Job Matching Agent" in system_prompt:
             return {
                 "summary": "LLM 解释：候选人核心技能匹配，但需要验证 Kubernetes。",
@@ -88,7 +97,8 @@ class LLMAgentsTest(unittest.TestCase):
         self.assertEqual(state.screening_result.confidence, 0.88)  # type: ignore[union-attr]
         self.assertEqual(state.interview_plan.selected_strategy, "llm_risk_based_interview")  # type: ignore[union-attr]
         self.assertEqual(state.supervisor_review.summary, "LLM 最终建议人工复核。")  # type: ignore[union-attr]
-        self.assertEqual(len(llm.calls), 5)
+        self.assertEqual(state.job_profile.title, "LLM 后端工程师")  # type: ignore[union-attr]
+        self.assertEqual(len(llm.calls), 6)
 
 
 if __name__ == "__main__":

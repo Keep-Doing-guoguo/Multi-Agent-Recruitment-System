@@ -6,13 +6,14 @@ from recruitment_system.llm import StructuredLLMClient
 
 
 class StateAnswerAgent:
-    """Answers follow-up questions from persisted recruitment workflow state."""
+    """基于已持久化的招聘 workflow 状态回答追问。"""
 
     def __init__(self, llm_client: StructuredLLMClient | None = None) -> None:
+        """初始化状态回答 Agent，可选接入 LLM。"""
         self.llm_client = llm_client
 
     def run(self, question: str, state: dict[str, Any]) -> str:
-        """Answer a user question using existing candidate, match, and review state."""
+        """使用已有候选人、匹配、初筛和复核状态回答用户问题。"""
         if self.llm_client is not None:
             try:
                 answer = self._run_llm(question, state)
@@ -23,7 +24,7 @@ class StateAnswerAgent:
         return self._rule_answer(question, state)
 
     def _run_llm(self, question: str, state: dict[str, Any]) -> str:
-        """Use the configured LLM to produce a state-grounded answer."""
+        """调用 LLM 生成严格基于现有 state 的回答。"""
         data = self.llm_client.generate_json(
             system_prompt=(
                 "你是 State Answer Agent。请只基于已有招聘 workflow state 回答用户追问。"
@@ -37,7 +38,7 @@ class StateAnswerAgent:
         return str(data.get("answer") or "").strip()
 
     def _rule_answer(self, question: str, state: dict[str, Any]) -> str:
-        """Build a deterministic answer from the most relevant persisted results."""
+        """从持久化结果中拼装规则版回答。"""
         text = question.lower()
         candidate = state.get("candidate_profile") if isinstance(state.get("candidate_profile"), dict) else {}
         match_result = state.get("match_result") if isinstance(state.get("match_result"), dict) else {}
@@ -85,7 +86,7 @@ class StateAnswerAgent:
         return "当前会话状态里没有足够的招聘处理结果，无法基于已有状态回答。"
 
     def _compact_state(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Keep only business result fields needed for state-based answering."""
+        """只保留状态问答需要的业务结果字段。"""
         keys = [
             "candidate_profile",
             "job_profile",

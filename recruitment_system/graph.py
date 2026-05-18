@@ -32,6 +32,8 @@ WORKFLOW_NODE_ORDER = ["resume_intake", "resume_parsing", "jd_extraction", "job_
 
 
 class RecruitmentGraphState(TypedDict, total=False):
+    """LangGraph 内部流转状态定义，所有字段都是可选增量更新。"""
+
     resume_input: str
     jd_input: str
     resume_text: str
@@ -52,7 +54,7 @@ class RecruitmentGraphState(TypedDict, total=False):
 
 
 class RecruitmentGraph:
-    """LangGraph orchestrator for the multi-agent recruitment pipeline."""
+    """招聘多 Agent 流程的 LangGraph 编排器。"""
 
     def __init__(
         self,
@@ -65,6 +67,7 @@ class RecruitmentGraph:
         supervisor_agent: SupervisorAgent | None = None,
         llm_client: StructuredLLMClient | None = None,
     ) -> None:
+        """初始化各业务 Agent、追踪器，并编译完整图和局部入口图。"""
         self.document_tool = document_tool or DocumentExtractionTool()
         self.resume_intake_agent = resume_intake_agent or ResumeIntakeAgent(document_tool=self.document_tool)
         self.resume_parsing_agent = resume_parsing_agent or ResumeParsingAgent(llm_client=llm_client)
@@ -77,16 +80,16 @@ class RecruitmentGraph:
         self.partial_apps = {node: self._build_graph(node).compile() for node in WORKFLOW_NODE_ORDER}
 
     def run(self, resume_input: str, jd_input: str) -> WorkflowState:
-        """Run the complete recruitment workflow from resume intake."""
+        """从简历接收节点开始执行完整招聘 workflow。"""
         initial = WorkflowState(resume_input=resume_input, jd_input=jd_input)
         result = self.app.invoke(initial.__dict__.copy())
         return self._to_workflow_state(result)
 
     def run_from_state(self, state: dict[str, Any], entry_node: str) -> WorkflowState:
-        """Run the workflow from a specific LangGraph node using restored state.
+        """基于已恢复的状态，从指定节点执行局部 workflow。
 
-        This is used by the conversation API for partial reruns, such as updating
-        JD matching without re-uploading or re-parsing the resume.
+        主要用于多轮会话的局部重跑，例如只更新 JD 后从 jd_extraction 继续执行，
+        而不要求用户重新上传或重新解析简历。
         """
         if entry_node not in self.partial_apps:
             raise ValueError(f"unsupported_graph_entry_node: {entry_node}")
@@ -104,7 +107,7 @@ class RecruitmentGraph:
         return self._to_workflow_state(result)
 
     def _build_graph(self, entry_point: str):
-        """Build a LangGraph app whose entry point can be the full or partial flow."""
+        """构建一个指定入口节点的 LangGraph 图。"""
         graph = StateGraph(RecruitmentGraphState)
         graph.add_node("resume_intake", self._resume_intake_node)
         graph.add_node("resume_parsing", self._resume_parsing_node)
@@ -137,7 +140,7 @@ class RecruitmentGraph:
         return graph
 
     def _resume_intake_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Extract raw resume text from the uploaded resume document."""
+        """简历接收节点：提取简历原始文本，并记录解析结果和事件。"""
         started_at, run_events = self.tracer.started(state, "resume_intake")
         warnings = list(state.get("warnings", []))
         errors = list(state.get("errors", []))
@@ -174,7 +177,7 @@ class RecruitmentGraph:
         }
 
     def _resume_parsing_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Parse extracted resume text into a structured candidate profile."""
+        """简历解析节点：把简历文本解析成结构化候选人画像。"""
         started_at, run_events = self.tracer.started(state, "resume_parsing")
         warnings = list(state.get("warnings", []))
         errors = list(state.get("errors", []))
@@ -210,7 +213,7 @@ class RecruitmentGraph:
         }
 
     def _jd_extraction_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Extract usable JD text before matching."""
+        """JD 提取节点：把 JD 输入转换为后续匹配可用的文本。"""
         started_at, run_events = self.tracer.started(state, "jd_extraction")
         warnings = list(state.get("warnings", []))
         errors = list(state.get("errors", []))
@@ -248,7 +251,7 @@ class RecruitmentGraph:
         }
 
     def _job_matching_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Parse the JD and score the candidate against the role."""
+        """岗位匹配节点：解析 JD 并计算候选人与岗位的匹配结果。"""
         started_at, run_events = self.tracer.started(state, "job_matching")
         candidate = state["candidate_profile"]
         warnings = list(state.get("warnings", []))
@@ -278,7 +281,7 @@ class RecruitmentGraph:
             return {"run_events": self.tracer.failed({**state, "run_events": run_events}, "job_matching", started_at, error), "errors": list(state.get("errors", [])) + [str(error)]}
 
     def _screening_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Produce the initial screening recommendation."""
+        """初筛节点：基于候选人、岗位和匹配结果生成初筛建议。"""
         started_at, run_events = self.tracer.started(state, "screening")
         try:
             result = self.screening_agent.run(
@@ -305,7 +308,7 @@ class RecruitmentGraph:
             return {"run_events": self.tracer.failed({**state, "run_events": run_events}, "screening", started_at, error), "errors": list(state.get("errors", [])) + [str(error)]}
 
     def _interview_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Generate an interview strategy and question plan."""
+        """面试节点：生成面试策略、关注点和问题计划。"""
         started_at, run_events = self.tracer.started(state, "interview")
         try:
             plan = self.interview_agent.run(
@@ -334,7 +337,7 @@ class RecruitmentGraph:
             return {"run_events": self.tracer.failed({**state, "run_events": run_events}, "interview", started_at, error), "errors": list(state.get("errors", [])) + [str(error)]}
 
     def _supervisor_node(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Create the final supervisor review for the workflow run."""
+        """复核节点：汇总下游结果并生成最终复核建议。"""
         started_at, run_events = self.tracer.started(state, "supervisor")
         try:
             review = self.supervisor_agent.run(
@@ -358,19 +361,19 @@ class RecruitmentGraph:
             return {"run_events": self.tracer.failed({**state, "run_events": run_events}, "supervisor", started_at, error), "errors": list(state.get("errors", [])) + [str(error)]}
 
     def _route_after_resume_intake(self, state: dict[str, Any]) -> GraphRoute:
-        """Continue only when resume intake produced no errors."""
+        """简历接收后路由：无错误则继续，否则结束 workflow。"""
         return "end" if state.get("errors") else "continue"
 
     def _route_after_resume_parsing(self, state: dict[str, Any]) -> GraphRoute:
-        """Continue only when resume parsing produced a valid candidate profile."""
+        """简历解析后路由：无错误且画像有效则继续，否则结束 workflow。"""
         return "end" if state.get("errors") else "continue"
 
     def _route_after_jd_extraction(self, state: dict[str, Any]) -> GraphRoute:
-        """Continue only when JD extraction produced no errors."""
+        """JD 提取后路由：无错误则进入岗位匹配，否则结束 workflow。"""
         return "end" if state.get("errors") else "continue"
 
     def _to_workflow_state(self, state: dict[str, Any]) -> WorkflowState:
-        """Convert raw LangGraph state into the public WorkflowState dataclass."""
+        """把 LangGraph 原始 state 转换为公开的 WorkflowState dataclass。"""
         allowed = {field.name for field in fields(WorkflowState)}
         data = {key: value for key, value in state.items() if key in allowed}
         return WorkflowState(**data)

@@ -8,7 +8,7 @@ from recruitment_system.tools.matching_tools import JDParserTool, MatchScoringTo
 
 
 class JobMatchingAgent:
-    """Parses a JD and compares it with a structured candidate profile."""
+    """解析 JD 并将岗位要求与候选人画像进行匹配。"""
 
     def __init__(
         self,
@@ -16,11 +16,13 @@ class JobMatchingAgent:
         scoring_tool: MatchScoringTool | None = None,
         llm_client: StructuredLLMClient | None = None,
     ) -> None:
-        self.jd_parser = jd_parser or JDParserTool()
+        """初始化岗位匹配 Agent，可注入 JD 解析、评分工具和 LLM 客户端。"""
+        self.jd_parser = jd_parser or JDParserTool(llm_client=llm_client)
         self.scoring_tool = scoring_tool or MatchScoringTool()
         self.llm_client = llm_client
 
     def run(self, candidate: CandidateProfile, jd_text: str):
+        """执行 JD 解析和匹配评分，启用 LLM 时补充风险和摘要解释。"""
         job = self.jd_parser.parse(jd_text)
         result: MatchResult = self.scoring_tool.score(candidate, job)
         if self.llm_client is not None:
@@ -28,6 +30,7 @@ class JobMatchingAgent:
         return job, result
 
     def _add_llm_explanation(self, candidate: CandidateProfile, jd_text: str, rule_result: MatchResult) -> MatchResult:
+        """在不改变规则分数的前提下，用 LLM 补充匹配摘要和风险点。"""
         try:
             data = self.llm_client.generate_json(
                 system_prompt=(

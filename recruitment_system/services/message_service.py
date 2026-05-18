@@ -31,7 +31,7 @@ from recruitment_system.tools.document_extraction import DocumentExtractionTool
 
 
 class MessageRoutingService:
-    """Routes conversation messages into recruitment business agents when needed."""
+    """负责把会话消息路由到对应招聘业务 Agent，并组织局部 workflow 执行。"""
 
     def __init__(
         self,
@@ -46,6 +46,7 @@ class MessageRoutingService:
         direct_answer_agent: DirectAnswerAgent | None = None,
         llm_client: StructuredLLMClient | None = None,
     ) -> None:
+        """初始化消息服务，组装路由器、业务 Agent、回答 Agent 和 LangGraph。"""
         self.document_tool = document_tool or self._default_document_tool()
         self.router_agent = router_agent or MessageRouterAgent(llm_client=llm_client)
         self.resume_intake_agent = resume_intake_agent or ResumeIntakeAgent(document_tool=self.document_tool)
@@ -67,7 +68,7 @@ class MessageRoutingService:
 
     @classmethod
     def from_env(cls, use_llm: bool = False) -> "MessageRoutingService":
-        """Create the service using environment-based LLM configuration."""
+        """根据环境变量创建消息服务，并在启用时接入 Ark 结构化 LLM。重新再次创建这个类的意思。这个就是cls和self的差异。"""
         llm_client: StructuredLLMClient | None = None
         if use_llm:
             config = LLMConfig.from_env()
@@ -84,7 +85,7 @@ class MessageRoutingService:
         jd_input: str | None = None,
         run_id: str | None = None,
     ) -> dict[str, Any]:
-        """Route one conversation message and execute the selected graph path."""
+        """处理一条会话消息：合并输入状态、路由、执行对应路径并返回响应。"""
         state = dict(conversation_state or {})
         if resume_input:
             state["resume_input"] = resume_input
@@ -116,7 +117,7 @@ class MessageRoutingService:
         )
 
     def _run_graph(self, decision: MessageRouteDecision, state: dict[str, Any]) -> WorkflowState:
-        """Execute LangGraph from the route decision's first workflow node."""
+        """根据路由决策选择入口节点，并从该节点执行 LangGraph。"""
         nodes = decision.required_nodes or [decision.route]
         entry_node = nodes[0]
         if entry_node == "job_matching" and state.get("jd_input"):
@@ -125,8 +126,8 @@ class MessageRoutingService:
         return self.graph.run_from_state(graph_state, entry_node)
 
     def _prepare_graph_state(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Restore persisted dict state into dataclass objects expected by agents."""
-        graph_state = dict(state)
+        """把持久化的 dict 状态恢复为 Agent 期望的 dataclass 对象。"""
+        graph_state = dict(state)#把从数据库/JSON 里读出来的 dict 状态，恢复成代码内部 Agent 需要的 dataclass 对象。
         for key, cls in (
             ("candidate_profile", CandidateProfile),
             ("job_profile", JobProfile),
@@ -141,14 +142,14 @@ class MessageRoutingService:
         return graph_state
 
     def _workflow_state_to_dict(self, workflow_state: WorkflowState) -> dict[str, Any]:
-        """Convert WorkflowState into JSON-safe conversation state."""
+        """把 WorkflowState 转成可 JSON 序列化的会话状态，并移除临时输入字段。"""
         state = self._jsonable(workflow_state)
         state.pop("resume_input", None)
         state.pop("jd_input", None)
         return state
 
     def _get_dataclass(self, state: dict[str, Any], key: str, cls: type[Any]) -> Any | None:
-        """Read a state value and restore it to the requested dataclass type."""
+        """读取 state 中的字段，并按指定 dataclass 类型恢复对象。"""
         value = state.get(key)
         if value is None:
             return None
@@ -159,7 +160,7 @@ class MessageRoutingService:
         return self._from_dict(cls, value)
 
     def _from_dict(self, cls: type[Any], value: dict[str, Any]) -> Any:
-        """Build a dataclass from persisted JSON data, including nested questions."""
+        """从持久化 JSON 数据构造 dataclass，并处理嵌套面试问题。"""
         allowed = {field.name for field in fields(cls)}
         data = {key: item for key, item in value.items() if key in allowed}
         if cls is InterviewPlan:
@@ -172,7 +173,7 @@ class MessageRoutingService:
         return cls(**data)
 
     def _selected_data(self, decision: MessageRouteDecision, state: dict[str, Any]) -> dict[str, Any]:
-        """Return the response data most relevant to the selected route."""
+        """根据路由类型挑选本轮响应里最相关的业务数据。"""
         keys_by_route = {
             "resume_intake": ["resume_document", "candidate_profile"],
             "job_matching": ["job_profile", "match_result", "screening_result", "interview_plan", "supervisor_review"],
@@ -192,7 +193,7 @@ class MessageRoutingService:
         state: dict[str, Any] | None = None,
         run_id: str | None = None,
     ) -> dict[str, Any]:
-        """Create the API response envelope for routed message handling."""
+        """构造 message 接口统一响应结构。"""
         return {
             "success": success,
             "message": message,
@@ -203,7 +204,7 @@ class MessageRoutingService:
         }
 
     def _jsonable(self, value: Any) -> Any:
-        """Recursively convert dataclasses and containers into JSON-safe values."""
+        """递归地把 dataclass、dict、list 转换为 JSON 友好的结构。"""
         if is_dataclass(value):
             return asdict(value)
         if isinstance(value, dict):
@@ -213,7 +214,7 @@ class MessageRoutingService:
         return value
 
     def _default_document_tool(self) -> DocumentExtractionTool:
-        """Create the document tool, using Ark multimodal extraction when configured."""
+        """创建默认文档提取工具；配置了 API Key 时启用 Ark 多模态兜底。"""
         config = LLMConfig.from_env()
         if config.api_key:
             return DocumentExtractionTool(multimodal_extractor=ArkMultimodalExtractor(config=config))
