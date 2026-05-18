@@ -10,10 +10,17 @@ from recruitment_system.llm import ArkMultimodalExtractor
 class FakeArkResponsesClient:
     def __init__(self) -> None:
         self.payload: dict[str, Any] | None = None
+        self.uploaded_file_path: Path | None = None
+        self.uploaded_purpose: str | None = None
 
     def create_response(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.payload = payload
         return {"output_text": "王五\n本科，4 年 Python 开发经验\n技能: Python, FastAPI"}
+
+    def upload_file(self, file_path: str | Path, purpose: str = "user_data") -> dict[str, Any]:
+        self.uploaded_file_path = Path(file_path)
+        self.uploaded_purpose = purpose
+        return {"id": "file-test-123"}
 
 
 def test_config() -> LLMConfig:
@@ -70,18 +77,35 @@ class ArkMultimodalExtractorTest(unittest.TestCase):
         image_url = client.payload["input"][0]["content"][0]["image_url"]
         self.assertTrue(image_url.startswith("data:image/png;base64,"))
 
-    def test_extract_returns_error_result_for_unsupported_local_file(self) -> None:
+    def test_extract_from_local_pdf_uploads_file_and_uses_input_file(self) -> None:
         client = FakeArkResponsesClient()
         extractor = ArkMultimodalExtractor(client=client, config=test_config())  # type: ignore[arg-type]
 
         with TemporaryDirectory() as temp_dir:
-            file_path = Path(temp_dir) / "resume.docx"
-            file_path.write_bytes(b"fake-docx")
+            file_path = Path(temp_dir) / "resume.pdf"
+            file_path.write_bytes(b"%PDF-1.4 fake-pdf")
             result = extractor.extract(file_path, "resume")
 
-        self.assertEqual(result.confidence, 0.0)
-        self.assertTrue(result.errors)
-        self.assertIn("unsupported_multimodal_file_type", result.errors[0])
+        self.assertFalse(result.errors)
+        self.assertEqual(result.file_type, "pdf")
+        self.assertEqual(client.uploaded_file_path, file_path)
+        self.assertEqual(client.uploaded_purpose, "user_data")
+        assert client.payload is not None
+        content = client.payload["input"][0]["content"]
+        self.assertEqual(content[0], {"type": "input_file", "file_id": "file-test-123"})
+        self.assertEqual(content[1]["type"], "input_text")
+        self.assertIn("简历文件", content[1]["text"])
+
+    def test_extract_from_remote_pdf_uses_file_url(self) -> None:
+        client = FakeArkResponsesClient()
+        extractor = ArkMultimodalExtractor(client=client, config=test_config())  # type: ignore[arg-type]
+
+        result = extractor.extract("https://example.com/resume.pdf", "resume")
+
+        self.assertFalse(result.errors)
+        assert client.payload is not None
+        content = client.payload["input"][0]["content"]
+        self.assertEqual(content[0], {"type": "input_file", "file_url": "https://example.com/resume.pdf"})
 
 
 if __name__ == "__main__":

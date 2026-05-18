@@ -312,7 +312,12 @@ workflow = RecruitmentWorkflow(
 state = workflow.run("resume.pdf", "jd.txt")
 ```
 
-项目也内置了 Ark Responses API 适配器，对应的请求格式与下面的 curl 一致：
+项目也内置了 Ark Responses API 适配器：
+
+- 图片 URL：作为 `input_image.image_url` 传入
+- 本地图片：转成 base64 data URL 后作为 `input_image.image_url` 传入
+- 本地 PDF / DOCX / 其他文档：先通过 Files API 上传，再作为 `input_file.file_id` 传入
+- 远程 PDF / DOCX / 其他文档 URL：作为 `input_file.file_url` 传入
 
 ```python
 from recruitment_system import ArkMultimodalExtractor, DocumentExtractionTool, RecruitmentWorkflow

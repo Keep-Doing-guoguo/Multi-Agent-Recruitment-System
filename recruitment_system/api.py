@@ -171,7 +171,7 @@ def _handle_message_payload(payload: dict[str, Any], temp_resume_path: str | Non
     )
 
     try:
-        service = MessageRoutingService.from_env(use_llm=env_flag("ENABLE_LLM", False))
+        service = MessageRoutingService.from_env(use_llm=env_flag("ENABLE_LLM", True))
     except ValueError as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
     response = service.handle_message(
